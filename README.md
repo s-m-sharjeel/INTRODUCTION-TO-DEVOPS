@@ -1,69 +1,127 @@
-# INTRODUCTION-TO-DEVOPS
-Automating the installation of a MySQL database server and the creation of a user and database using Ansible.
+# MySQL Database Automation with Ansible
 
-create 2 ec2 instances on aws
-- use devops.pem key
-- use the same subnet
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-ssh into the machine using:
-ssh -i devops.pem ubuntu@<ip_address>
+A DevOps project that automates the installation and configuration of MySQL database servers using Ansible. This project demonstrates infrastructure as code (IaC) principles by automating the setup of MySQL database servers, creating databases and users with appropriate privileges.
 
-change hostname to controller and db1 and db2:
-sudo hostname <hostname>
-re-ssh into the vms to get the changes
+## Project Overview
 
-on the db machine show that MySQL hasn't been installed yet:
-systemctl status mysql
+This project automates the following tasks:
+- Installation of MySQL server on target hosts
+- Configuration of a root password
+- Creation of a database
+- Creation of a database user with appropriate privileges
 
+## Prerequisites
+
+- AWS EC2 instances (controller and database servers)
+- Ubuntu OS on all instances
+- SSH access to all instances
+- `devops.pem` private key for SSH authentication
+
+## Environment Setup
+
+### 1. Setting up EC2 Instances
+
+Create two EC2 instances in AWS:
+- Controller node (Ansible host)
+- Database server node
+
+Ensure both instances:
+- Use Ubuntu as the operating system
+- Are in the same subnet
+- Can be accessed using the `devops.pem` key
+
+### 2. Instance Configuration
+
+SSH into each instance and configure hostnames:
+
+```bash
+# For controller instance
+ssh -i devops.pem ubuntu@<controller_ip_address>
+sudo hostname controller
+exit
+
+# For database server instance
+ssh -i devops.pem ubuntu@<db_ip_address>
+sudo hostname db1
+exit
+```
+
+Re-SSH into the instances to apply the hostname changes.
+
+### 3. Ansible Installation (Controller Node)
+
+Install Ansible on the controller node:
+
+```bash
+ssh -i devops.pem ubuntu@<controller_ip_address>
 sudo su -
 apt update
-
 sudo apt-add-repository -y ppa:ansible/ansible
 sudo apt-get install -y ansible
-
 sudo apt update
-sudo apt install ansible
-
 ansible --version
+```
 
-cd /etc/ansible/ 
-hosts has all the targeted hosts
+### 4. Ansible Configuration
 
+Configure the Ansible hosts file to include the database servers:
+
+```bash
+cd /etc/ansible/
 nano hosts
+```
+
+Add the following to the hosts file:
+
+```
 [dbservers]
-db ansible_host=<insert ip for db server wali vm>
+db ansible_host=<db_ip_address>
+```
 
-try pinging...
-ansible dbservers -m ping -u ubuntu
-ping should fail
+### 5. SSH Key Setup for Passwordless Authentication
 
-exit root
-cd .ssh/
+Generate SSH keys and copy to target hosts:
+
+```bash
+cd ~/.ssh/
 ssh-keygen
 
-create project dir
-mkdir project
-cd project
+# Copy the public key to the database server
+cat ~/.ssh/id_rsa.pub | ssh -i ~/project/devops.pem ubuntu@<db_ip_address> "cat >> ~/.ssh/authorized_keys"
+```
 
+### 6. Project Setup
+
+Create a project directory and copy the required SSH key:
+
+```bash
+mkdir ~/project
+cd ~/project
 nano devops.pem
-copy devops key here to ssh into the host machines
-change the privilege of the devops file
+# Paste the contents of your devops.pem key here
 chmod 600 ~/project/devops.pem
-ls -l ~/project/devops.pem
-will show privilege^
+```
 
-cat ~/.ssh/id_rsa.pub | ssh -i ~/project/devops.pem ubuntu@<vm_ip> "cat >> ~/.ssh/authorized_keys"
+## Playbook Structure
 
-nano mysql_setup.yaml
+The main playbook `mysql_setup.yaml` contains tasks to:
+1. Install required Python MySQL libraries
+2. Preconfigure MySQL root password
+3. Install MySQL server
+4. Ensure MySQL service is running
+5. Create a database
+6. Create a MySQL user with appropriate privileges
+
+```yaml
 ---
 - name: Automate MySQL installation and configuration
   hosts: db
   become: yes
   vars:
     mysql_root_password: "YourRootPassword"
-
   tasks:
-    # Install required Python MySQL libraries
     - name: Install required Python MySQL libraries
       package:
         name: "{{ item }}"
@@ -71,7 +129,6 @@ nano mysql_setup.yaml
       loop:
         - python3-pymysql
 
-    # Preconfigure MySQL password
     - name: Preconfigure MySQL password
       debconf:
         name: "mysql-server"
@@ -79,7 +136,6 @@ nano mysql_setup.yaml
         value: "{{ mysql_root_password }}"
         vtype: "password"
 
-    # Preconfigure MySQL password confirmation
     - name: Preconfigure MySQL password confirmation
       debconf:
         name: "mysql-server"
@@ -87,21 +143,18 @@ nano mysql_setup.yaml
         value: "{{ mysql_root_password }}"
         vtype: "password"
 
-    # Install MySQL server
     - name: Install MySQL server
       apt:
         name: mysql-server
         state: present
         update_cache: yes
 
-    # Ensure MySQL service is running
     - name: Ensure MySQL service is running
       service:
         name: mysql
         state: started
         enabled: true
 
-    # Create a database
     - name: Create a new database
       mysql_db:
         name: my_database
@@ -109,7 +162,6 @@ nano mysql_setup.yaml
         login_user: root
         login_password: "{{ mysql_root_password }}"
 
-    # Create a MySQL user
     - name: Create a new MySQL user
       mysql_user:
         name: my_user
@@ -118,15 +170,52 @@ nano mysql_setup.yaml
         state: present
         login_user: root
         login_password: "{{ mysql_root_password }}"
+```
 
-no need for inventory.yaml cus the hosts are already stored in the etc/ansible/hosts file (default)
+## Running the Playbook
 
-executing playbook:
+Execute the playbook from the controller node:
+
+```bash
+cd ~/project
 ansible-playbook mysql_setup.yaml
+```
 
-testing on the db machine:
+## Verification
+
+Verify the MySQL installation and configuration on the database server:
+
+```bash
+# Check MySQL service status
 systemctl status mysql
+
+# Log in as root
 mysql -u root -p
-password: YourRootPassword
+# Enter password: YourRootPassword
+
+# Log in as the created user and access the database
 mysql -u my_user -p -D my_database
-password: MySecurePassword
+# Enter password: MySecurePassword
+```
+
+## Security Considerations
+
+- Store sensitive information like passwords securely using Ansible Vault
+- Consider implementing more restrictive user privileges based on requirements
+- Implement proper network security groups for database access
+
+## Future Improvements
+
+- Add database backups automation
+- Implement high availability configurations
+- Add monitoring and alerting setup
+- Create roles for better code organization
+- Implement parameterized configurations for different environments
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Author
+
+Shaikh M. Sharjeel
